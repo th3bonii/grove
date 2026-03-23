@@ -26,10 +26,21 @@ Skills are loaded automatically based on context. When working on:
 
 ## Commands
 
+### SDD Workflow
 - `/sdd-init` - Initialize SDD in project
-- `/sdd-new <name>` - Create new change with full SDD pipeline
+- `/sdd-new <nombre>` - Create new change with full SDD pipeline
 - `/sdd-continue` - Continue next missing artifact
 - `/sdd-ff` - Fast-forward: propose → spec → design → tasks
 - `/sdd-apply` - Implement tasks in batches
 - `/sdd-verify` - Verify implementation against specs
 - `/sdd-archive` - Archive completed change
+
+### GROVE Commands
+- `/grove-spec --input <path>` - Generate specifications from ideas/docs
+- `/grove-spec --update --input <spec>` - Update existing specification
+- `/grove-spec --reverse --input <code>` - Reverse engineer code to spec
+- `/grove-opti <prompt>` - Optimize a natural language prompt
+- `/grove-opti --batch <file>` - Batch optimize multiple prompts
+- `/grove-loop --spec <spec>` - Execute autonomous build loop
+- `/grove-loop --status` - Check loop status
+- `/grove-loop --resume` - Resume paused loop
