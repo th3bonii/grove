@@ -626,16 +626,17 @@ func TestConstants(t *testing.T) {
 
 // TestLogLevels tests that log levels work correctly.
 func TestLogLevels(t *testing.T) {
-	if LevelDebug != slog.LevelDebug {
+	// LogLevel implements slog.Leveler, so we use Level() to get slog.Level
+	if LevelDebug.Level() != slog.LevelDebug {
 		t.Error("LevelDebug mismatch")
 	}
-	if LevelInfo != slog.LevelInfo {
+	if LevelInfo.Level() != slog.LevelInfo {
 		t.Error("LevelInfo mismatch")
 	}
-	if LevelWarn != slog.LevelWarn {
+	if LevelWarn.Level() != slog.LevelWarn {
 		t.Error("LevelWarn mismatch")
 	}
-	if LevelError != slog.LevelError {
+	if LevelError.Level() != slog.LevelError {
 		t.Error("LevelError mismatch")
 	}
 }

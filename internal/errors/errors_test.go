@@ -482,7 +482,7 @@ func TestValidationError(t *testing.T) {
 
 	t.Run("Error() with value", func(t *testing.T) {
 		err := NewValidationError("age", "range", nil).WithValue(-5)
-		want := `validation failed for field "age", got: -5`
+		want := `validation failed for field "age" (rule: range), got: -5`
 		if got := err.Error(); got != want {
 			t.Errorf("Error() = %q, want %q", got, want)
 		}

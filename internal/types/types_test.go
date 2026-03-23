@@ -659,3 +659,387 @@ func BenchmarkUserProfileCreation(b *testing.B) {
 		_ = NewUserProfile()
 	}
 }
+
+// =============================================================================
+// JSON Serialization Edge Cases Tests
+// =============================================================================
+
+func TestJSONSerialization_AllTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value interface{}
+	}{
+		{
+			name:  "ExitCondition",
+			value: ExitNormal,
+		},
+		{
+			name:  "DimensionKey",
+			value: DimensionFlowCoverage,
+		},
+		{
+			name:  "ComponentType",
+			value: ComponentTypeUI,
+		},
+		{
+			name: "ComponentState",
+			value: ComponentState{
+				ID:          "state-1",
+				Name:        "Default",
+				Description: "Initial state",
+				IsDefault:   true,
+			},
+		},
+		{
+			name:  "TaskStatus",
+			value: TaskStatusPending,
+		},
+		{
+			name:  "LoopStatus",
+			value: LoopStatusRunning,
+		},
+		{
+			name:  "VerifyStatus",
+			value: VerifyStatusPassed,
+		},
+		{
+			name:  "ErrorType",
+			value: ErrorTypeLLMResponse,
+		},
+		{
+			name:  "ReadyStatus",
+			value: ReadyStatusProductionReady,
+		},
+		{
+			name:  "IntentType",
+			value: IntentFeatureAddition,
+		},
+		{
+			name:  "SelectionLayer",
+			value: LayerAgentsMD,
+		},
+		{
+			name:  "WhyCategory",
+			value: WhyCategoryFileReference,
+		},
+		{
+			name:  "UserAction",
+			value: UserActionSend,
+		},
+		{
+			name:  "DiffType",
+			value: DiffTypeAdded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Marshal to JSON
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal %s: %v", tt.name, err)
+			}
+
+			// Unmarshal back
+			var result interface{}
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal %s: %v", tt.name, err)
+			}
+
+			// Verify we got something back (JSON unmarshal always produces something)
+			if result == nil {
+				t.Errorf("Unmarshal returned nil for %s", tt.name)
+			}
+		})
+	}
+}
+
+func TestJSONSerialization_QualityScoreEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		value QualityScore
+	}{
+		{
+			name:  "zero values",
+			value: QualityScore{},
+		},
+		{
+			name: "max values",
+			value: QualityScore{
+				Dimension: DimensionFlowCoverage,
+				Score:     10,
+				MaxScore:  10,
+				Notes:     "Perfect score",
+			},
+		},
+		{
+			name: "with nil notes",
+			value: QualityScore{
+				Dimension: DimensionComponentDecomposition,
+				Score:     5,
+				MaxScore:  10,
+				Notes:     "",
+			},
+		},
+		{
+			name: "empty dimension",
+			value: QualityScore{
+				Dimension: "",
+				Score:     0,
+				MaxScore:  10,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %v", err)
+			}
+
+			var result QualityScore
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+
+			// Verify basic round-trip
+			if result.Score != tt.value.Score || result.MaxScore != tt.value.MaxScore {
+				t.Errorf("Score/MaxScore mismatch: got %d/%d, want %d/%d",
+					result.Score, result.MaxScore, tt.value.Score, tt.value.MaxScore)
+			}
+		})
+	}
+}
+
+func TestJSONSerialization_LoopStateEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		value LoopState
+	}{
+		{
+			name:  "initial state",
+			value: LoopState{},
+		},
+		{
+			name: "with timestamps",
+			value: LoopState{
+				LoopNumber:    1,
+				ExitCondition: ExitNormal,
+				StartedAt:     time.Now(),
+			},
+		},
+		{
+			name: "with nil pointer",
+			value: LoopState{
+				LoopNumber:    2,
+				CompletedAt:   nil,
+				ExitCondition: ExitSafetyNet,
+			},
+		},
+		{
+			name: "with empty dimension scores",
+			value: LoopState{
+				LoopNumber:               3,
+				DimensionScores:          []QualityScore{},
+				CompositeScore:           0,
+				ContentDeltaPct:          0,
+				ConsecutiveLowDeltaCount: 0,
+				ExitCondition:            ExitManual,
+			},
+		},
+		{
+			name: "with negative delta",
+			value: LoopState{
+				LoopNumber:      4,
+				CompositeScore:  75,
+				ContentDeltaPct: -5.5,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %v", err)
+			}
+
+			var result LoopState
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+
+			// Basic verification
+			if result.LoopNumber != tt.value.LoopNumber {
+				t.Errorf("LoopNumber mismatch: got %d, want %d", result.LoopNumber, tt.value.LoopNumber)
+			}
+		})
+	}
+}
+
+func TestJSONSerialization_CompositeScoreEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		value CompositeScore
+	}{
+		{
+			name:  "zero values",
+			value: CompositeScore{},
+		},
+		{
+			name: "passing score",
+			value: CompositeScore{
+				Scores: []QualityScore{
+					{Dimension: DimensionFlowCoverage, Score: 9, MaxScore: 10},
+					{Dimension: DimensionComponentDecomposition, Score: 8, MaxScore: 10},
+					{Dimension: DimensionLogicalConsistency, Score: 9, MaxScore: 10},
+					{Dimension: DimensionInterComponentConnectivity, Score: 8, MaxScore: 10},
+					{Dimension: DimensionEdgeCaseCoverage, Score: 9, MaxScore: 10},
+					{Dimension: DimensionDecisionJustification, Score: 8, MaxScore: 10},
+					{Dimension: DimensionAgentConsumability, Score: 9, MaxScore: 10},
+				},
+				Composite:    88,
+				MinDimension: 8,
+				Passed:       true,
+			},
+		},
+		{
+			name: "failing score",
+			value: CompositeScore{
+				Scores: []QualityScore{
+					{Dimension: DimensionFlowCoverage, Score: 5, MaxScore: 10},
+				},
+				Composite:    50,
+				MinDimension: 5,
+				Passed:       false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %v", err)
+			}
+
+			var result CompositeScore
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+
+			if result.Passed != tt.value.Passed {
+				t.Errorf("Passed mismatch: got %v, want %v", result.Passed, tt.value.Passed)
+			}
+		})
+	}
+}
+
+func TestJSONSerialization_TaskExecutionEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		value TaskExecution
+	}{
+		{
+			name:  "empty task",
+			value: TaskExecution{},
+		},
+		{
+			name: "with nil result",
+			value: TaskExecution{
+				TaskID:      "task-1",
+				Status:      TaskStatusInProgress,
+				Attempts:    0,
+				MaxAttempts: 3,
+			},
+		},
+		{
+			name: "with failed result",
+			value: TaskExecution{
+				TaskID:      "task-2",
+				Status:      TaskStatusBlocked,
+				Attempts:    3,
+				MaxAttempts: 3,
+				Result: &TaskResult{
+					Success: false,
+					Output:  "compilation failed",
+					Message: "failed",
+				},
+			},
+		},
+		{
+			name: "with many files",
+			value: TaskExecution{
+				TaskID:   "task-3",
+				Status:   TaskStatusCompleted,
+				Attempts: 1,
+				Result: &TaskResult{
+					Success: true,
+					FilesCreated: []string{
+						"file1.go", "file2.go", "file3.go", "file4.go", "file5.go",
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %v", err)
+			}
+
+			var result TaskExecution
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+
+			if result.TaskID != tt.value.TaskID {
+				t.Errorf("TaskID mismatch: got %q, want %q", result.TaskID, tt.value.TaskID)
+			}
+		})
+	}
+}
+
+func TestJSONSerialization_CheckpointEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		value Checkpoint
+	}{
+		{
+			name:  "empty checkpoint",
+			value: Checkpoint{},
+		},
+		{
+			name: "with nil state",
+			value: Checkpoint{
+				ID:         "cp-1",
+				Timestamp:  time.Now(),
+				LoopNumber: 1,
+				TaskID:     "task-1",
+				State:      nil,
+				Reason:     "test",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Failed to marshal: %v", err)
+			}
+
+			var result Checkpoint
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+
+			if result.ID != tt.value.ID {
+				t.Errorf("ID mismatch: got %q, want %q", result.ID, tt.value.ID)
+			}
+		})
+	}
+}

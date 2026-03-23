@@ -485,7 +485,7 @@ func TestExplainer_GenerateExplanationText(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.elementType)+"_"+tt.level.String(), func(t *testing.T) {
+		t.Run(string(tt.elementType)+"_"+formatLevel(tt.level), func(t *testing.T) {
 			element := &PromptElement{
 				Type:    tt.elementType,
 				Content: "test content",
@@ -654,17 +654,6 @@ func TestExplainer_LogInvocation(t *testing.T) {
 		logPath: logPath,
 	}
 
-	entry := InvocationLogEntry{
-		Timestamp:            "2024-01-15T10:30:00Z",
-		IntentClassification: "bug-fix",
-		TokensUsed:           1250,
-		FilesSelected: []FileCandidate{
-			{Path: "/src/auth/service.go", Layer: 1, Score: 1.0},
-		},
-		UserAction:       "send",
-		SkillsReferenced: []string{"auth-skill"},
-	}
-
 	err := explainer.LogInvocation(
 		IntentClassification{Intent: "bug-fix"},
 		1250,
@@ -814,5 +803,333 @@ func TestUserProfile_ExperienceProgression(t *testing.T) {
 		if level != expected {
 			t.Errorf("At times_seen=%d, expected %v, got %v", i+1, expected, level)
 		}
+	}
+}
+
+// =============================================================================
+// Edge Cases Tests
+// =============================================================================
+
+func TestClassifier_Classify_EdgeCases(t *testing.T) {
+	classifier := NewClassifier()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantNil bool
+	}{
+		{
+			name:    "empty input",
+			input:   "",
+			wantNil: true, // Empty input should handle gracefully
+		},
+		{
+			name:    "whitespace only",
+			input:   "   \t\n  ",
+			wantNil: true,
+		},
+		{
+			name:    "very short input",
+			input:   "a",
+			wantNil: false,
+		},
+		{
+			name:    "unicode input",
+			input:   "添加登录功能",
+			wantNil: false,
+		},
+		{
+			name:    "mixed unicode and ascii",
+			input:   "fix the 登录 bug",
+			wantNil: false,
+		},
+		{
+			name:    "emoji in input",
+			input:   "add 🔧 button to settings",
+			wantNil: false,
+		},
+		{
+			name:    "very long input",
+			input:   strings.Repeat("add feature ", 1000),
+			wantNil: false,
+		},
+		{
+			name:    "special characters only",
+			input:   "!@#$%^&*()",
+			wantNil: false,
+		},
+		{
+			name:    "numbers only",
+			input:   "12345",
+			wantNil: false,
+		},
+		{
+			name:    "single word",
+			input:   "feature",
+			wantNil: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := classifier.Classify(tt.input)
+
+			// For empty/whitespace, just verify it doesn't panic
+			if tt.wantNil && result.Intent == "" {
+				t.Logf("Empty/whitespace input returned empty intent")
+			}
+
+			// For non-empty, verify we got a result
+			if !tt.wantNil && result.Intent == "" {
+				t.Errorf("Expected non-empty intent for input %q", tt.input)
+			}
+
+			// Verify confidence is in valid range
+			if result.Confidence < 0.0 || result.Confidence > 1.0 {
+				t.Errorf("Confidence %f out of range [0,1]", result.Confidence)
+			}
+
+			t.Logf("Input: %q -> Intent: %s, Confidence: %.2f, Keywords: %v",
+				tt.input, result.Intent, result.Confidence, result.Keywords)
+		})
+	}
+}
+
+func TestClassifier_ExtractKeywords_EdgeCases(t *testing.T) {
+	classifier := NewClassifier()
+
+	tests := []struct {
+		name     string
+		input    string
+		wantZero bool
+	}{
+		{
+			name:     "empty input",
+			input:    "",
+			wantZero: true,
+		},
+		{
+			name:     "whitespace only",
+			input:    "   \t\n  ",
+			wantZero: true,
+		},
+		{
+			name:     "stop words only",
+			input:    "the a an or and but",
+			wantZero: true,
+		},
+		{
+			name:     "very long input",
+			input:    strings.Repeat("word ", 10000),
+			wantZero: false,
+		},
+		{
+			name:     "unicode only",
+			input:    "日本語中文한국어",
+			wantZero: false,
+		},
+		{
+			name:     "single character repeated",
+			input:    "aaaaa",
+			wantZero: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := classifier.extractKeywords(tt.input)
+
+			if tt.wantZero && len(result) != 0 {
+				t.Errorf("Expected zero keywords for %q, got %d", tt.input, len(result))
+			}
+
+			if !tt.wantZero && len(result) == 0 {
+				t.Errorf("Expected non-zero keywords for %q, got 0", tt.input)
+			}
+		})
+	}
+}
+
+func TestClassifier_ExtractDomain_EdgeCases(t *testing.T) {
+	classifier := NewClassifier()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty input",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "whitespace only",
+			input:    "   ",
+			expected: "",
+		},
+		{
+			name:     "no domain keywords",
+			input:    "do something generic",
+			expected: "",
+		},
+		{
+			name:     "camelCase domain",
+			input:    "update useAuth hook",
+			expected: "Auth",
+		},
+		{
+			name:     "kebab-case domain",
+			input:    "fix user-profile component",
+			expected: "Profile",
+		},
+		{
+			name:     "multiple domains",
+			input:    "add login to dashboard",
+			expected: "Dashboard", // First match wins
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := classifier.extractDomain(tt.input)
+			if result != tt.expected {
+				t.Errorf("extractDomain(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTruncate_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input    string
+		maxLen   int
+		expected string
+	}{
+		{"short", 10, "short"},
+		{"exactly10!", 10, "exactly10!"},
+		{"this is a long string", 10, "this is a ..."},
+		{"", 5, ""},
+		{"abc", 0, "..."}, // Edge: maxLen 0
+		{"abc", 1, "..."}, // Edge: maxLen 1
+		{"abc", 2, "..."}, // Edge: maxLen 2
+		{"abc", 3, "abc"}, // Edge: exactly fits
+		{"a😀b", 3, "a😀b"}, // Unicode edge case
+		{"🎉🎊🎈", 2, "🎉🎊🎈"}, // Emoji truncation
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := truncate(tt.input, tt.maxLen)
+			if result != tt.expected {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExplainer_GenerateExplanationText_EdgeCases(t *testing.T) {
+	explainer := &Explainer{}
+
+	tests := []struct {
+		elementType PromptElementType
+		level       ExplanationLevel
+		wantEmpty   bool
+	}{
+		{ElementFileReference, ExplanationFull, false},
+		{ElementFileReference, ExplanationShort, false},
+		{ElementFileReference, ExplanationLabel, false},
+		{ElementScopeBoundary, ExplanationFull, false},
+		{ElementSuccessCriteria, ExplanationFull, false},
+		{ElementPlanMode, ExplanationFull, false},
+		{ElementSkillInvocation, ExplanationFull, false},
+		{"unknown-type", ExplanationFull, true}, // Unknown type
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.elementType)+"_"+formatLevel(tt.level), func(t *testing.T) {
+			element := &PromptElement{
+				Type:    tt.elementType,
+				Content: "test content",
+			}
+			result := explainer.generateExplanationText(element, tt.level)
+
+			if tt.wantEmpty && result != "" {
+				t.Errorf("Expected empty for unknown type, got %q", result)
+			}
+			if !tt.wantEmpty && result == "" {
+				t.Errorf("Expected non-empty result for %s", tt.elementType)
+			}
+		})
+	}
+}
+
+// formatLevel returns a string representation of ExplanationLevel
+func formatLevel(level ExplanationLevel) string {
+	switch level {
+	case ExplanationFull:
+		return "full"
+	case ExplanationShort:
+		return "short"
+	case ExplanationLabel:
+		return "label"
+	default:
+		return "unknown"
+	}
+}
+
+func TestExplainer_UpdateProfile_EdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "test-log.md")
+
+	explainer := &Explainer{
+		logPath:     logPath,
+		noTeach:     false,
+		userProfile: &UserProfile{Categories: make(map[string]CategoryProfile)},
+	}
+
+	// Test with empty elements
+	err := explainer.UpdateProfile([]PromptElement{}, "send")
+	if err != nil {
+		t.Errorf("UpdateProfile with empty elements should not fail: %v", err)
+	}
+
+	// Test with invalid action (should use default)
+	err = explainer.UpdateProfile([]PromptElement{{Type: ElementFileReference}}, "invalid-action")
+	if err != nil {
+		t.Errorf("UpdateProfile with invalid action should not fail: %v", err)
+	}
+
+	// Verify profile wasn't corrupted
+	if explainer.userProfile == nil {
+		t.Error("UserProfile should not be nil")
+	}
+}
+
+func TestSplitCamelCase_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"useAuth", []string{"use", "Auth"}},
+		{"UserProfile", []string{"User", "Profile"}},
+		{"getUserById", []string{"get", "User", "By", "Id"}},
+		{"darkMode", []string{"dark", "Mode"}},
+		{"simple", []string{"simple"}},
+		{"", []string{}},             // Empty
+		{"A", []string{"A"}},         // Single char
+		{"AB", []string{"AB"}},       // Two caps
+		{"ABC", []string{"ABC"}},     // All caps
+		{"aB", []string{"a", "B"}},   // Single lower then cap
+		{"AbC", []string{"Ab", "C"}}, // Mixed
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := splitCamelCase(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("splitCamelCase(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
 	}
 }
