@@ -258,6 +258,9 @@ type Engine struct {
 
 	// Configuration
 	config EngineConfig
+
+	// Dry-run tracking
+	dryRunFiles []string // Files that would be written in dry-run mode
 }
 
 // EngineConfig holds engine configuration.
@@ -269,6 +272,7 @@ type EngineConfig struct {
 	EnableWebSearch    bool    // Enable web search (default: true)
 	EnableMCP          bool    // Enable MCP integration (default: true)
 	EnableEngram       bool    // Enable Engram integration (default: true)
+	DryRun             bool    // Dry-run mode: preview files without writing (default: false)
 }
 
 // DefaultEngineConfig returns default configuration.
@@ -304,6 +308,7 @@ func NewEngine(projectDir string, config EngineConfig) *Engine {
 		requirements: make([]Requirement, 0),
 		tracker:      NewIdeaTracker(ideaContent),
 		config:       config,
+		dryRunFiles:  make([]string, 0),
 	}
 }
 
@@ -356,6 +361,12 @@ func (e *Engine) validateInput() error {
 func (e *Engine) Run(ctx context.Context) (*CompletionReport, error) {
 	fmt.Println("GROVE Spec v2.0 — Idea to Specification Engine")
 	fmt.Println("══════════════════════════════════════════════════")
+
+	// Show dry-run mode message
+	if e.config.DryRun {
+		fmt.Println("\n🔍 DRY-RUN MODE: No files will be written")
+		fmt.Println("   Use --dry-run to preview what would be generated")
+	}
 
 	// Validate input before any processing
 	if err := e.validateInput(); err != nil {
@@ -863,6 +874,15 @@ func (e *Engine) generateCompletionReport() *CompletionReport {
 		completenessReport = &report
 	}
 
+	// Show dry-run summary at the end
+	if e.config.DryRun && len(e.dryRunFiles) > 0 {
+		fmt.Println("\n📋 DRY-RUN SUMMARY - Files that would be generated:")
+		for _, f := range e.dryRunFiles {
+			fmt.Printf("   • %s\n", f)
+		}
+		fmt.Printf("\n   Total: %d files\n", len(e.dryRunFiles))
+	}
+
 	return &CompletionReport{
 		Status:             "COMPLETE",
 		TotalLoops:         e.state.LoopNumber,
@@ -884,6 +904,24 @@ func (e *Engine) generateCompletionReport() *CompletionReport {
 // Helper functions
 
 func (e *Engine) writeFile(path string, content string) error {
+	// Track file for dry-run summary
+	relPath, err := filepath.Rel(e.projectDir, path)
+	if err != nil {
+		relPath = path
+	}
+	e.dryRunFiles = append(e.dryRunFiles, relPath)
+
+	if e.config.DryRun {
+		fmt.Printf("  [DRY-RUN] Would write %s (%d bytes)\n", relPath, len(content))
+		return nil
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
 	return os.WriteFile(path, []byte(content), 0644)
 }
 

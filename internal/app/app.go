@@ -27,6 +27,7 @@ type SpecOptions struct {
 	LoopMax     int
 	Resume      bool
 	FullRescore bool
+	DryRun      bool // Dry-run mode: preview files without writing
 	Feedback    *QualityGateFeedback
 }
 
@@ -216,6 +217,8 @@ func parseSpecArgs(args []string) (*SpecOptions, error) {
 			opts.Resume = true
 		case "--full-rescore":
 			opts.FullRescore = true
+		case "--dry-run":
+			opts.DryRun = true
 		}
 	}
 

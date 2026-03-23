@@ -33,6 +33,7 @@ func run(args []string) error {
 		verboseFlag     = fs.Bool("v", false, "Enable verbose output")
 		quietFlag       = fs.Bool("q", false, "Suppress non-essential output")
 		helpFlag        = fs.Bool("h", false, "Show help message")
+		dryRunFlag      = fs.Bool("dry-run", false, "Preview files without writing - shows what would be generated")
 	)
 
 	// Parse flags
@@ -72,6 +73,7 @@ func run(args []string) error {
 		LoopMax:     *loopMaxFlag,
 		Resume:      *resumeFlag,
 		FullRescore: *fullRescoreFlag,
+		DryRun:      *dryRunFlag,
 	}
 
 	// Create config
@@ -115,6 +117,9 @@ Examples:
 
 	# Custom output directory
 	grove-spec --input ./ideas --output ./documentation
+
+	# Dry-run: preview what would be generated without writing files
+	grove-spec --input ./ideas --dry-run
 
 Exit Codes:
 	0 - Success
