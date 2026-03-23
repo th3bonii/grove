@@ -1,0 +1,13 @@
+# Prompts para optimizar
+
+## Prompt 1: Componente de React
+Crea un componente de React para mostrar una lista de usuarios
+
+## Prompt 2: Validación de email
+Haz una función que valide un email
+
+## Prompt 3: API REST
+Necesito crear una API con Node.js
+
+## Prompt 4: Testing
+Escribe tests para una función de login
