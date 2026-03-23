@@ -37,7 +37,7 @@ func run() error {
 
 	// Filter out global flags
 	filteredArgs := make([]string, 0, len(args))
-	for i, arg := range args {
+	for _, arg := range args {
 		switch arg {
 		case "-v", "--verbose":
 			cfg.Verbose = true
@@ -51,7 +51,7 @@ func run() error {
 			fmt.Printf("%s version %s\n", name, version)
 			return nil
 		default:
-			filteredArgs = append(filteredArgs, args[i:]...)
+			filteredArgs = append(filteredArgs, arg)
 			break
 		}
 	}

@@ -3,6 +3,7 @@
 package opti
 
 import (
+	"math"
 	"regexp"
 	"strings"
 )
@@ -47,16 +48,17 @@ func NewClassifier() *Classifier {
 				regexp.MustCompile(`(?i)\b(bug|defect|crash|exception|null|nil|undefined)\b`),
 			},
 			IntentRefactor: {
-				regexp.MustCompile(`(?i)\b(refactor|restructure|reorganize|clean|optimize|improve)\b`),
-				regexp.MustCompile(`(?i)\b(rename|extract|move|consolidate|decouple)\b`),
+				regexp.MustCompile(`(?i)\b(refactor|restructure|reorganize|clean|cleanup|optimize|improve)\b`),
+				regexp.MustCompile(`(?i)\b(rename|extract|move|consolidate|decouple|up|reorganize)\b`),
 			},
 			IntentDocumentationUpdate: {
-				regexp.MustCompile(`(?i)\b(doc|document|comment|readme|guide|wiki)\b`),
-				regexp.MustCompile(`(?i)\b(update|write|add|create|fix)\b.*\b(documentation|docs|comment)\b`),
+				regexp.MustCompile(`(?i)\b(doc|document|comment|readme|guide|wiki|documentation|docs|spec|specs)\b`),
+				regexp.MustCompile(`(?i)\b(update|write|add|create|fix)\b.*\b(documentation|docs|comments?|readme|guide|spec)\b`),
+				regexp.MustCompile(`(?i)^(doc|document|comment|readme|write|spec)\b`),
 			},
 			IntentConfigurationChange: {
-				regexp.MustCompile(`(?i)\b(config|setting|env|environment|config|parameter)\b`),
-				regexp.MustCompile(`(?i)\b(change|update|modify|add|remove)\b.*\b(config|setting|env)\b`),
+				regexp.MustCompile(`(?i)\b(config|setting|env|environment|parameter|options?)\b`),
+				regexp.MustCompile(`(?i)\b(change|update|modify|add|remove|set)\b.*\b(config|setting|env|variable|option)s?\b`),
 			},
 		},
 	}
@@ -73,6 +75,32 @@ func (c *Classifier) Classify(input string) IntentClassification {
 	var bestIntent Intent = IntentOther
 	var bestScore float64 = 0.0
 
+	// Priority check: detect clear documentation intent first
+	// Pattern matches: "write docs", "update documentation", "add comments", "create readme"
+	docPriorityPattern := regexp.MustCompile(`(?i)^(doc|document|comment|readme|write|spec|documentation)\b|\b(write|create|update|add)\b\s+\b(doc|document|comments?|readme|guide|docs|specs?|documentation)\b`)
+	if docPriorityPattern.MatchString(input) {
+		return IntentClassification{
+			Intent:     IntentDocumentationUpdate,
+			Domain:     domain,
+			Keywords:   keywords,
+			Confidence: 1.0,
+			RawInput:   input,
+		}
+	}
+
+	// Priority check: detect clear feature-addition intent
+	// Pattern matches: "add [something] to [page/component/...]"
+	featurePriorityPattern := regexp.MustCompile(`(?i)\b(add|create|implement|build)\b.*\b(to|page|component|module|feature|section)\b`)
+	if featurePriorityPattern.MatchString(input) {
+		return IntentClassification{
+			Intent:     IntentFeatureAddition,
+			Domain:     domain,
+			Keywords:   keywords,
+			Confidence: 1.0,
+			RawInput:   input,
+		}
+	}
+
 	for intent, patterns := range c.intentPatterns {
 		score := c.calculateIntentScore(input, patterns)
 		if score > bestScore {
@@ -83,7 +111,7 @@ func (c *Classifier) Classify(input string) IntentClassification {
 
 	// Boost confidence if keywords are strong
 	if len(keywords) >= 3 {
-		bestScore = min(bestScore*1.2, 1.0)
+		bestScore = math.Min(bestScore*1.2, 1.0)
 	}
 
 	// Determine domain from keywords if not explicitly found
@@ -130,40 +158,98 @@ func (c *Classifier) calculateIntentScore(input string, patterns []*regexp.Regex
 // extractDomain extracts the primary domain/module from the input.
 // Looks for common domain patterns like "settings", "auth", "dashboard", etc.
 func (c *Classifier) extractDomain(input string) string {
-	// Common domain patterns to look for
+	// Common domain patterns to look for - order matters, more specific last
 	domainPatterns := []string{
-		`\b(settings|config|configuration)\b`,
-		`\b(auth|authentication|login|signup|user)\b`,
+		`\b(settings|configuration)\b`,
 		`\b(dashboard|home|landing)\b`,
-		`\b(profile|account|user-settings)\b`,
+		`\b(profile|account)\b`,
 		`\b(api|endpoint|route)\b`,
 		`\b(navigation|menu|sidebar)\b`,
 		`\b(theme|dark-mode|light-mode)\b`,
 		`\b(payment|billing|subscription)\b`,
 		`\b(notification|alert|message)\b`,
 		`\b(search|filter|sort)\b`,
+		`\b(auth|authentication|login|signup|user)\b`,
 	}
 
 	lowerInput := strings.ToLower(input)
 
-	for _, pattern := range domainPatterns {
-		re := regexp.MustCompile(pattern)
-		if matches := re.FindString(lowerInput); matches != "" {
-			// Return the first match, cleaned up
-			return strings.Title(strings.ReplaceAll(matches, "-", " "))
-		}
-	}
-
-	// Try to extract domain from @file references
+	// Try to extract domain from @file references first
 	fileRefPattern := regexp.MustCompile(`@([a-zA-Z0-9_-]+)`)
 	matches := fileRefPattern.FindAllStringSubmatch(input, -1)
 	if len(matches) > 0 {
-		// Return the first file reference path component
 		for _, match := range matches {
 			if len(match) > 1 {
 				return match[1]
 			}
 		}
+	}
+
+	// Try camelCase/PascalCase - extract the capitalized part(s)
+	camelCasePattern := regexp.MustCompile(`([a-z]+)([A-Z][a-zA-Z]*)`)
+	camelMatches := camelCasePattern.FindAllStringSubmatch(input, -1)
+	for _, match := range camelMatches {
+		if len(match) >= 3 {
+			// match[0] = full match, match[1] = lowercase prefix, match[2] = capitalized part
+			capitalizedPart := match[2]
+			lower := strings.ToLower(capitalizedPart)
+			for _, pattern := range domainPatterns {
+				if regexp.MustCompile(pattern).MatchString(lower) {
+					m := regexp.MustCompile(pattern).FindString(lower)
+					return strings.Title(strings.ReplaceAll(m, "-", " "))
+				}
+			}
+		}
+	}
+
+	// Try kebab-case - return the second part (more specific domain)
+	kebabPattern := regexp.MustCompile(`([a-z]+)-([a-z]+)`)
+	kebabMatches := kebabPattern.FindAllStringSubmatch(lowerInput, -1)
+	for _, match := range kebabMatches {
+		if len(match) >= 3 {
+			// match[0] = full, match[1] = first part, match[2] = second part
+			secondPart := match[2]
+			for _, pattern := range domainPatterns {
+				if regexp.MustCompile(pattern).MatchString(secondPart) {
+					m := regexp.MustCompile(pattern).FindString(secondPart)
+					return strings.Title(strings.ReplaceAll(m, "-", " "))
+				}
+			}
+			// If second part not in patterns, try first part
+			firstPart := match[1]
+			for _, pattern := range domainPatterns {
+				if regexp.MustCompile(pattern).MatchString(firstPart) {
+					m := regexp.MustCompile(pattern).FindString(firstPart)
+					return strings.Title(strings.ReplaceAll(m, "-", " "))
+				}
+			}
+		}
+	}
+
+	// Standard word matching - use longest match to get more specific domain
+	reMatches := make(map[string]bool)
+	for _, pattern := range domainPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllString(lowerInput, -1)
+		for _, m := range matches {
+			reMatches[m] = true
+		}
+	}
+	// Collect all matches and return the most specific one (prefer longer matches)
+	var allMatches []string
+	for m := range reMatches {
+		allMatches = append(allMatches, m)
+	}
+	// Sort by length descending (longer matches are more specific)
+	for i := 0; i < len(allMatches)-1; i++ {
+		for j := i + 1; j < len(allMatches); j++ {
+			if len(allMatches[j]) > len(allMatches[i]) {
+				allMatches[i], allMatches[j] = allMatches[j], allMatches[i]
+			}
+		}
+	}
+	if len(allMatches) > 0 {
+		return strings.Title(strings.ReplaceAll(allMatches[0], "-", " "))
 	}
 
 	return ""
@@ -185,6 +271,7 @@ func (c *Classifier) extractKeywords(input string) []string {
 		"we": true, "they": true, "it": true, "my": true, "your": true,
 		"our": true, "their": true, "please": true, "want": true, "need": true,
 		"also": true, "just": true, "like": true, "when": true, "what": true,
+		"over": true,
 	}
 
 	var keywords []string

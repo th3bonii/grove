@@ -19,6 +19,8 @@ const (
 	ExplanationLabel                         // Label only, no explanation
 )
 
+// Note: LearnedPattern is defined in bidirectional.go and shared across the package
+
 // UserProfile tracks the user's learning history for adaptive explanations.
 type UserProfile struct {
 	Categories map[string]CategoryProfile `json:"categories"`
@@ -45,16 +47,7 @@ type Explainer struct {
 	explainAll   bool
 	noTeach      bool
 	userProfile  *UserProfile
-	editPatterns []EditPattern
-}
-
-// EditPattern represents a learned pattern from user edits.
-type EditPattern struct {
-	PatternType   string `json:"pattern_type"` // "added", "removed", "rewritten"
-	Category      string `json:"category"`
-	Frequency     int    `json:"frequency"`
-	ExampleBefore string `json:"example_before"`
-	ExampleAfter  string `json:"example_after"`
+	editPatterns []LearnedPattern
 }
 
 // NewExplainer creates a new ExplanationGenerator.
@@ -384,7 +377,7 @@ func (e *Explainer) checkLearnedPattern(elementType PromptElementType) (bool, st
 
 	for _, pattern := range e.editPatterns {
 		if pattern.Category == category && pattern.Frequency >= 3 {
-			switch pattern.PatternType {
+			switch pattern.Type {
 			case "added":
 				return true, fmt.Sprintf("you prefer to add %s", category)
 			case "removed":
@@ -445,23 +438,23 @@ func (e *Explainer) RecordEditPattern(original, final string, category PromptEle
 
 	// Find existing pattern
 	for i := range e.editPatterns {
-		if e.editPatterns[i].Category == string(category) && e.editPatterns[i].PatternType == patternType {
+		if e.editPatterns[i].Category == string(category) && e.editPatterns[i].Type == patternType {
 			e.editPatterns[i].Frequency++
-			if e.editPatterns[i].ExampleBefore == "" {
-				e.editPatterns[i].ExampleBefore = truncate(original, 100)
+			if e.editPatterns[i].Before == "" {
+				e.editPatterns[i].Before = truncate(original, 100)
 			}
-			e.editPatterns[i].ExampleAfter = truncate(final, 100)
+			e.editPatterns[i].After = truncate(final, 100)
 			return e.saveEditPatterns()
 		}
 	}
 
 	// Create new pattern
-	e.editPatterns = append(e.editPatterns, EditPattern{
-		PatternType:   patternType,
-		Category:      string(category),
-		Frequency:     1,
-		ExampleBefore: truncate(original, 100),
-		ExampleAfter:  truncate(final, 100),
+	e.editPatterns = append(e.editPatterns, LearnedPattern{
+		Type:      patternType,
+		Category:  string(category),
+		Frequency: 1,
+		Before:    truncate(original, 100),
+		After:     truncate(final, 100),
 	})
 
 	return e.saveEditPatterns()
@@ -484,10 +477,16 @@ func (e *Explainer) LogInvocation(classification IntentClassification, tokens in
 // Helper functions
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	// Handle edge cases
+	if maxLen <= 0 {
+		return "..."
+	}
+	// Use runes to handle Unicode correctly (emojis, accented chars, etc.)
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }
 
 func loadUserProfile(logPath string) *UserProfile {
@@ -529,7 +528,7 @@ func loadUserProfile(logPath string) *UserProfile {
 	return nil
 }
 
-func loadEditPatterns(logPath string) []EditPattern {
+func loadEditPatterns(logPath string) []LearnedPattern {
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		return nil
@@ -540,7 +539,7 @@ func loadEditPatterns(logPath string) []EditPattern {
 	for _, section := range sections {
 		if strings.HasPrefix(section, "Edit Patterns") {
 			// Try to parse as JSON array
-			var patterns []EditPattern
+			var patterns []LearnedPattern
 			jsonStart := strings.Index(section, "[")
 			jsonEnd := strings.LastIndex(section, "]")
 			if jsonStart >= 0 && jsonEnd > jsonStart {

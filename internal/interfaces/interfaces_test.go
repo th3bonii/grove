@@ -1413,8 +1413,9 @@ func TestQualityScoresCompositeScore(t *testing.T) {
 	}
 
 	composite := scores.CompositeScore()
-	expected := 8.0 * 0.20 * 5 // FlowCoverage + ComponentDepth + LogicalConsistency + Connectivity + EdgeCases
-	expected += 8.0 * 0.10 * 2 // DecisionJustification + AgentConsumability
+	// The code uses these weights: 0.20, 0.20, 0.15, 0.15, 0.15, 0.10, 0.05
+	// All scores are 8.0, so: 8.0*(0.20+0.20+0.15+0.15+0.15+0.10+0.05) = 8.0*1.0 = 8.0
+	expected := 8.0
 
 	if composite != expected {
 		t.Errorf("CompositeScore() = %v, want %v", composite, expected)

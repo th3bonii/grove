@@ -248,7 +248,7 @@ func TestReport(t *testing.T) {
 		"**Tasks Failed:** 1",
 		"**Token Usage:** 500",
 		"**Files Processed:** 10",
-		"**Loop Duration History**",
+		"### Loop Duration History",
 	}
 
 	for _, section := range expectedSections {

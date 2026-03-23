@@ -1,0 +1,5 @@
+- Login con email/password
+- Registro de usuarios
+- Logout
+- Tokens de refresh
+- Recuperación de contraseña

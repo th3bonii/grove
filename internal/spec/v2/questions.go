@@ -474,7 +474,7 @@ func (e *Engine) askAlternativeQuestions(comp Component) []DeepQuestion {
 		},
 		{
 			ID:         fmt.Sprintf("%s-alt-3", comp.Name),
-			Question:   fmt.Sprintf("What do competitors/industry leaders do for similar features?", comp.Name),
+			Question:   "What do competitors/industry leaders do for similar features?",
 			Category:   CategoryAlternative,
 			Answer:     "",
 			Status:     StatusNeedsResearch,
@@ -485,7 +485,7 @@ func (e *Engine) askAlternativeQuestions(comp Component) []DeepQuestion {
 		},
 		{
 			ID:         fmt.Sprintf("%s-alt-4", comp.Name),
-			Question:   fmt.Sprintf("What are the pros/cons of current approach vs alternatives?", comp.Name),
+			Question:   "What are the pros/cons of current approach vs alternatives?",
 			Category:   CategoryAlternative,
 			Answer:     "",
 			Status:     StatusNeedsResearch,

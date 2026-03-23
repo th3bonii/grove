@@ -145,12 +145,12 @@ func DetectStack(idea string) string {
 		StackNextJS:        {"next", "next.js", "nextjs", "ssr", "isr", "app router", "pages router"},
 		StackReact:         {"react", "jsx", "tsx", "create react app", "vite react"},
 		StackVue:           {"vue", "vue.js", "vuejs", "nuxt", "nuxt.js"},
-		StackAngular:       {"angular", "ng", "angularjs", "@angular"},
+		StackAngular:       {"angular", "angularjs", "@angular", "standalone components"},
 		StackGoGin:         {"gin", "golang gin", "go-gin"},
 		StackGoEcho:        {"echo", "golang echo", "go-echo", "labstack echo"},
 		StackGoChi:         {"chi", "golang chi", "go-chi", "go router chi"},
 		StackPythonFastAPI: {"fastapi", "fast api", "python fastapi"},
-		StackPythonDjango:  {"django", "python django"},
+		StackPythonDjango:  {"django", "python django", "django orm"},
 		StackNodeExpress:   {"express", "node express", "node.js express", "expressjs"},
 	}
 
@@ -160,7 +160,14 @@ func DetectStack(idea string) string {
 	for stack, words := range keywords {
 		score := 0
 		for _, word := range words {
-			if strings.Contains(lowerIdea, word) {
+			// For short keywords (2-3 chars), require word boundary
+			// For longer keywords, substring match is fine
+			if len(word) <= 3 {
+				// Check if word is surrounded by word boundaries
+				if containsWord(lowerIdea, word) {
+					score++
+				}
+			} else if strings.Contains(lowerIdea, word) {
 				score++
 			}
 		}
@@ -176,6 +183,30 @@ func DetectStack(idea string) string {
 	}
 
 	return bestMatch
+}
+
+// containsWord checks if a word exists as a standalone word (with word boundaries).
+func containsWord(s, word string) bool {
+	for i := 0; i <= len(s)-len(word); i++ {
+		// Check if word starts at position i
+		if s[i:i+len(word)] == word {
+			// Check word boundary before
+			if i > 0 && isAlphanumeric(s[i-1]) {
+				continue
+			}
+			// Check word boundary after
+			if i+len(word) < len(s) && isAlphanumeric(s[i+len(word)]) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// isAlphanumeric checks if a character is alphanumeric.
+func isAlphanumeric(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // GetAllStacks returns a list of all available stack identifiers.

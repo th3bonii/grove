@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Gentleman-Programming/grove/internal/gentle"
 	"github.com/Gentleman-Programming/grove/internal/logger"
+	"github.com/Gentleman-Programming/grove/internal/opti"
 	"github.com/Gentleman-Programming/grove/internal/types"
 )
 
@@ -87,9 +89,37 @@ func New(config *AppConfig) *App {
 		logCfg.Pretty = false
 	}
 
-	return &App{
+	app := &App{
 		config: config,
 		log:    logger.New(logCfg),
+	}
+
+	// Detect gentle-ai availability and log status
+	app.logGentleAIStatus(context.Background())
+
+	return app
+}
+
+// logGentleAIStatus logs the gentle-ai detection status at startup.
+func (a *App) logGentleAIStatus(ctx context.Context) {
+	detector := gentle.NewDetector()
+	result := detector.Detect()
+
+	if !result.Installed {
+		a.log.LogWarning(ctx, "gentle-ai not detected. GROVE will run in standalone mode.", map[string]any{
+			"hint": "To enable full functionality, install gentle-ai: https://github.com/Gentleman-Programming/gentle-ai",
+		})
+	} else {
+		a.log.LogInfo(ctx, "gentle-ai detected", map[string]any{
+			"version": result.Version,
+			"path":    result.Path,
+		})
+	}
+
+	if result.SkillsDir != "" {
+		a.log.LogInfo(ctx, "Skills directory found", map[string]any{
+			"path": result.SkillsDir,
+		})
 	}
 }
 
@@ -524,15 +554,24 @@ func (a *App) runBatchMode(opts *OptiOptions) error {
 		"input_file": opts.Batch,
 	})
 
-	// TODO: Read file and process each line as a prompt
-	// Output to GROVE-OPTI-BATCH-<timestamp>.md
+	// Use BatchProcessor to process the file
+	bp := opti.NewBatchProcessor(
+		a.config.ProjectRoot,
+		opts.MaxTokens,
+		opts.ExplainAll,
+		false, // noTeach - enabled for batch mode
+	)
 
-	batchFile := fmt.Sprintf("GROVE-OPTI-BATCH-%d.md", os.Getpid())
-	a.log.LogInfo(ctx, "Output file", map[string]any{
-		"file": batchFile,
+	outputPath, err := bp.ProcessFile(ctx, opts.Batch)
+	if err != nil {
+		return fmt.Errorf("batch processing failed: %w", err)
+	}
+
+	a.log.LogInfo(ctx, "Batch processing complete", map[string]any{
+		"output_file": outputPath,
 	})
-	a.log.LogInfo(ctx, "Batch processing not yet fully implemented", nil)
 
+	fmt.Printf("Batch results written to: %s\n", outputPath)
 	return nil
 }
 

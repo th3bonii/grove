@@ -124,6 +124,5 @@ Examples:
 Exit Codes:
 	0 - Success
 	1 - Error
-	2 - Quality threshold not met (warning)
-`)
+	2 - Quality threshold not met (warning)`)
 }

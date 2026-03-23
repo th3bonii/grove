@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -15,13 +16,37 @@ type bufferHandler struct {
 }
 
 func (h *bufferHandler) Handle(_ context.Context, r slog.Record) error {
+	// Write the message
 	_, err := h.Buffer.WriteString(r.Message)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Write all attributes to capture the full log entry
+	r.Attrs(func(attr slog.Attr) bool {
+		h.Buffer.WriteString(" ")
+		h.Buffer.WriteString(attr.Key)
+		h.Buffer.WriteString("=")
+		h.Buffer.WriteString(fmt.Sprintf("%v", attr.Value))
+		return true
+	})
+
+	// Write a newline for easier parsing
+	h.Buffer.WriteString("\n")
+	return nil
 }
 
 func (h *bufferHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
-func (h *bufferHandler) WithAttrs(_ []slog.Attr) slog.Handler         { return h }
-func (h *bufferHandler) WithGroup(_ string) slog.Handler              { return h }
+func (h *bufferHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	for _, attr := range attrs {
+		h.Buffer.WriteString(" ")
+		h.Buffer.WriteString(attr.Key)
+		h.Buffer.WriteString("=")
+		h.Buffer.WriteString(fmt.Sprintf("%v", attr.Value))
+	}
+	return h
+}
+func (h *bufferHandler) WithGroup(_ string) slog.Handler { return h }
 
 func newTestLogger(buf *bytes.Buffer) *GroveLogger {
 	return &GroveLogger{

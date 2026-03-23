@@ -1,0 +1,5 @@
+Prompt 1:
+Crea un componente de React para mostrar una lista de usuarios
+
+Prompt 2:
+Haz una función que valide un email

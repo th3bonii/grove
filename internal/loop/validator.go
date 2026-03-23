@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -186,62 +187,165 @@ func (v *Validator) Validate(docsPath string) (*ValidationResult, error) {
 	start := time.Now()
 	result := NewValidationResult()
 
+	// If no docsPath provided, try to use the configured docsDir
+	validatePath := docsPath
+	if validatePath == "" {
+		validatePath = v.docsDir
+	}
+
 	// Check if docs directory exists
-	if v.docsDir != "" {
-		if _, err := os.Stat(v.docsDir); os.IsNotExist(err) {
-			result.AddError("DOCS_NOT_FOUND", "Documentation directory does not exist", v.docsDir)
+	if validatePath != "" {
+		if _, err := os.Stat(validatePath); os.IsNotExist(err) {
+			result.AddError("DOCS_NOT_FOUND", "Documentation directory does not exist", validatePath)
 			result.DurationMs = time.Since(start).Milliseconds()
 			return result, nil
 		}
 	}
 
-	// Validate docs path if provided
-	if docsPath != "" {
-		info, err := os.Stat(docsPath)
-		if os.IsNotExist(err) {
-			result.AddError("PATH_NOT_FOUND", "Documentation path does not exist", docsPath)
-		} else if err != nil {
-			result.AddError("PATH_ERROR", "Cannot access documentation path", docsPath)
-		} else if info.IsDir() {
-			// Validate all markdown files in directory
-			entries, err := os.ReadDir(docsPath)
-			if err != nil {
-				result.AddError("DIR_READ_ERROR", "Cannot read documentation directory", docsPath)
-			} else {
-				hasContent := false
-				for _, entry := range entries {
-					if !entry.IsDir() && filepath.Ext(entry.Name()) == ".md" {
-						hasContent = true
-						break
-					}
-				}
-				if !hasContent {
-					result.AddWarning("NO_DOCS", "No markdown files found in documentation directory", docsPath)
-				}
-			}
-		} else {
-			// Single file - validate extension
-			ext := filepath.Ext(docsPath)
-			if ext != ".md" && ext != ".yaml" && ext != ".yml" {
-				result.AddWarning("UNSUPPORTED_EXT", "Unsupported documentation file extension", ext)
-			}
-		}
+	// Validate the 5 required documentation files
+	if validatePath != "" {
+		v.validateRequiredFiles(result, validatePath)
 	}
-
-	// Check for required sections in documentation
-	result.AddInfo("VALIDATION_STARTED", "Pre-flight validation started", "")
-
-	// Simulate additional validation checks
-	v.validateDocumentationStructure(result, docsPath)
 
 	result.DurationMs = time.Since(start).Milliseconds()
 	return result, nil
 }
 
-// validateDocumentationStructure checks the structure of documentation.
-func (v *Validator) validateDocumentationStructure(result *ValidationResult, docsPath string) {
-	// Check for common documentation sections
-	result.AddInfo("STRUCTURE_CHECK", "Documentation structure validation completed", "")
+// validateRequiredFiles validates the 5 required documentation files:
+// 1. SPEC.md - Specification of requirements
+// 2. DESIGN.md - Technical design
+// 3. TASKS.md - Task list
+// 4. AGENTS.md - Agent configuration
+// 5. SKILL.md(s) - Required skills
+func (v *Validator) validateRequiredFiles(result *ValidationResult, projectPath string) {
+	// Validate SPEC.md - warning if missing (not blocking)
+	if err := v.validateSpec(projectPath); err != nil {
+		result.AddWarning("SPEC_MISSING", err.Error(), "SPEC.md")
+	} else {
+		// Verify minimum content
+		content, _ := v.readFile(filepath.Join(projectPath, "SPEC.md"))
+		if !v.hasMinimumContent(content, 200) {
+			result.AddWarning("SPEC_TOO_SHORT", "SPEC.md exists but has insufficient content", "SPEC.md")
+		} else {
+			result.AddInfo("SPEC_FOUND", "SPEC.md found with sufficient content", "SPEC.md")
+		}
+	}
+
+	// Validate DESIGN.md - warning if missing (not blocking)
+	if err := v.validateDesign(projectPath); err != nil {
+		result.AddWarning("DESIGN_MISSING", err.Error(), "DESIGN.md")
+	} else {
+		result.AddInfo("DESIGN_FOUND", "DESIGN.md found", "DESIGN.md")
+	}
+
+	// Validate TASKS.md - warning if missing (not blocking)
+	if err := v.validateTasks(projectPath); err != nil {
+		result.AddWarning("TASKS_MISSING", err.Error(), "TASKS.md")
+	} else {
+		// Check if tasks are defined
+		tasks, _ := v.loadTasksFromFile(filepath.Join(projectPath, "TASKS.md"))
+		if len(tasks) == 0 {
+			result.AddWarning("TASKS_EMPTY", "TASKS.md has no tasks defined", "TASKS.md")
+		} else {
+			result.AddInfo("TASKS_FOUND", fmt.Sprintf("TASKS.md found with %d tasks", len(tasks)), "TASKS.md")
+		}
+	}
+
+	// Validate AGENTS.md (warning only - not critical)
+	if err := v.validateAgents(projectPath); err != nil {
+		result.AddWarning("AGENTS_MISSING", err.Error(), "AGENTS.md")
+	} else {
+		result.AddInfo("AGENTS_FOUND", "AGENTS.md found", "AGENTS.md")
+	}
+
+	// Validate SKILL.md(s) (info only - not critical)
+	if err := v.validateSkills(projectPath); err != nil {
+		result.AddInfo("SKILLS_MISSING", err.Error(), "SKILL.md")
+	} else {
+		result.AddInfo("SKILLS_FOUND", "Required skills found", "SKILL.md")
+	}
+}
+
+// validateSpec checks if SPEC.md exists
+func (v *Validator) validateSpec(projectPath string) error {
+	filePath := filepath.Join(projectPath, "SPEC.md")
+	if !fileExists(filePath) {
+		return fmt.Errorf("SPEC.md not found at %s", filePath)
+	}
+	return nil
+}
+
+// validateDesign checks if DESIGN.md exists
+func (v *Validator) validateDesign(projectPath string) error {
+	filePath := filepath.Join(projectPath, "DESIGN.md")
+	if !fileExists(filePath) {
+		return fmt.Errorf("DESIGN.md not found at %s", filePath)
+	}
+	return nil
+}
+
+// validateTasks checks if TASKS.md exists
+func (v *Validator) validateTasks(projectPath string) error {
+	filePath := filepath.Join(projectPath, "TASKS.md")
+	if !fileExists(filePath) {
+		return fmt.Errorf("TASKS.md not found at %s", filePath)
+	}
+	return nil
+}
+
+// validateAgents checks if AGENTS.md exists
+func (v *Validator) validateAgents(projectPath string) error {
+	filePath := filepath.Join(projectPath, "AGENTS.md")
+	if !fileExists(filePath) {
+		return fmt.Errorf("AGENTS.md not found at %s", filePath)
+	}
+	return nil
+}
+
+// validateSkills checks if SKILL.md or SKILLs directory exists
+func (v *Validator) validateSkills(projectPath string) error {
+	// Check for SKILL.md in project root
+	skillPath := filepath.Join(projectPath, "SKILL.md")
+	if fileExists(skillPath) {
+		return nil
+	}
+
+	// Check for .skills directory
+	skillsDir := filepath.Join(projectPath, ".skills")
+	if fileExists(skillsDir) {
+		return nil
+	}
+
+	// Check for skills directory
+	skillsDir = filepath.Join(projectPath, "skills")
+	if fileExists(skillsDir) {
+		return nil
+	}
+
+	return fmt.Errorf("no SKILL.md or skills directory found in %s", projectPath)
+}
+
+// readFile reads file content safely
+func (v *Validator) readFile(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// hasMinimumContent checks if content has minimum length
+func (v *Validator) hasMinimumContent(content string, minLength int) bool {
+	return len(content) >= minLength
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 // ValidateTask validates a single task for completeness and correctness.
@@ -436,7 +540,7 @@ func extractPhase(line string) string {
 
 // isTaskLine checks if a line represents a task.
 func isTaskLine(line string) bool {
-	return len(line) >= 4 && (line[:4] == "- [ ]" || line[:4] == "- [x]" || line[:4] == "- [X]")
+	return len(line) >= 5 && (line[:5] == "- [ ]" || line[:5] == "- [x]" || line[:5] == "- [X]")
 }
 
 // parseTaskLine parses a single task line into a Task struct.
@@ -448,30 +552,25 @@ func parseTaskLine(line string, lineNum int, phase, filePath string) Task {
 		UpdatedAt: time.Now(),
 	}
 
-	// Extract task text
-	text := line[4:] // Remove "- [ ]" or "- [x]"
-	if len(text) > 0 && text[0] == ' ' {
-		text = text[1:]
-	}
+	// Extract task text - remove "- [ ]" or "- [x]" prefix (5 chars) and trim
+	text := strings.TrimSpace(line[5:])
 	task.Title = text
 
-	// Check completion status
-	task.Completed = len(line) >= 4 && line[2] == 'x'
+	// Check completion status - line[2] is 'x' in "- [x]"
+	task.Completed = len(line) >= 3 && line[2] == 'x'
 
 	return task
 }
 
-// sortTasks sorts tasks by phase and priority.
+// sortTasks sorts tasks by phase order using O(n log n) sort.Slice.
 func (v *Validator) sortTasks(tasks []Task) {
-	// Tasks are sorted by phase order and then by priority
-	// This is a simple bubble sort - in production, use sort.Slice
-	for i := 0; i < len(tasks)-1; i++ {
-		for j := 0; j < len(tasks)-i-1; j++ {
-			if tasks[j].Phase > tasks[j+1].Phase {
-				tasks[j], tasks[j+1] = tasks[j+1], tasks[j]
-			}
-		}
+	phaseOrder := map[string]int{
+		"explore": 1, "propose": 2, "spec": 3,
+		"design": 4, "tasks": 5, "apply": 6,
 	}
+	sort.Slice(tasks, func(i, j int) bool {
+		return phaseOrder[tasks[i].Phase] < phaseOrder[tasks[j].Phase]
+	})
 }
 
 // StateManager handles persistence of loop state.
@@ -504,15 +603,23 @@ func (sm *StateManager) SaveState(state *LoopState) error {
 		state.CheckpointID = fmt.Sprintf("checkpoint-%d", state.CheckpointNum)
 	}
 
-	filePath := filepath.Join(sm.stateDir, "loop-state.json")
-
 	content, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
-		return fmt.Errorf("cannot write state file: %w", err)
+	// Write to temp file first, then atomically rename
+	// This prevents corruption if crash occurs during write
+	tmpPath := filepath.Join(sm.stateDir, "loop-state.tmp")
+	if err := os.WriteFile(tmpPath, content, 0644); err != nil {
+		return fmt.Errorf("cannot write temp state file: %w", err)
+	}
+
+	finalPath := filepath.Join(sm.stateDir, "loop-state.json")
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		// Clean up temp file on failure
+		os.Remove(tmpPath)
+		return fmt.Errorf("cannot rename state file: %w", err)
 	}
 
 	return nil

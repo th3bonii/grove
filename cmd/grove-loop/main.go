@@ -137,6 +137,5 @@ Exit Codes:
 	0 - Success (PRODUCTION READY)
 	1 - Error
 	2 - Paused (check status and resume)
-	3 - Quality gate failed (documentation needs improvement)
-`)
+	3 - Quality gate failed (documentation needs improvement)`)
 }

@@ -199,6 +199,5 @@ Examples:
 Exit Codes:
 	0 - Success
 	1 - Error
-	2 - User rejected optimized prompt
-`)
+	2 - User rejected optimized prompt`)
 }

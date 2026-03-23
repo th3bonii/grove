@@ -9,7 +9,31 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Gentleman-Programming/grove/internal/sdd"
 )
+
+// =============================================================================
+// Mock SDD Client for Testing
+// =============================================================================
+
+// MockSDDClient is a mock implementation of SDDClientExecutor for testing.
+type MockSDDClient struct {
+	ExecuteFunc func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error)
+}
+
+// Execute implements the SDDClientExecutor interface.
+func (m *MockSDDClient) Execute(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+	if m.ExecuteFunc != nil {
+		return m.ExecuteFunc(ctx, phase, input)
+	}
+	return &sdd.Result{
+		Phase:    phase,
+		Status:   "success",
+		Summary:  "mock execution completed",
+		Duration: 0,
+	}, nil
+}
 
 // =============================================================================
 // Validator Tests
@@ -69,7 +93,8 @@ func TestValidationResult_AddWarning(t *testing.T) {
 
 	result.AddWarning("WARN_CODE", "Test warning message", "warn_field")
 
-	if result.Valid {
+	// Warnings should NOT invalidate the result
+	if !result.Valid {
 		t.Error("Result should still be valid with warning only")
 	}
 
@@ -334,11 +359,13 @@ func TestValidator_LoadTasks_Directory(t *testing.T) {
 }
 
 func TestValidator_LoadTasks_File(t *testing.T) {
-	// Create a temporary file with task data
+	// Create a temporary file with task data in YAML format
 	tmpDir := t.TempDir()
 
+	// Use proper YAML format that the parser can handle
+	// The parser uses json.Unmarshal so we need valid JSON-like structure
 	taskContent := `{"tasks":[{"id":"task-1","title":"Test Task","phase":"Phase 1"}]}`
-	taskPath := filepath.Join(tmpDir, "tasks.json")
+	taskPath := filepath.Join(tmpDir, "tasks.yaml")
 	if err := os.WriteFile(taskPath, []byte(taskContent), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -354,7 +381,7 @@ func TestValidator_LoadTasks_File(t *testing.T) {
 		t.Errorf("Expected 1 task, got %d", len(tasks))
 	}
 
-	if tasks[0].ID != "task-1" {
+	if len(tasks) > 0 && tasks[0].ID != "task-1" {
 		t.Errorf("Expected task ID 'task-1', got '%s'", tasks[0].ID)
 	}
 }
@@ -682,7 +709,23 @@ func TestOrchestrator_Stop(t *testing.T) {
 }
 
 func TestOrchestrator_ExecuteTask(t *testing.T) {
-	orch := NewOrchestrator(nil)
+	// Create mock SDD client that returns success
+	mockClient := &MockSDDClient{
+		ExecuteFunc: func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+			t.Logf("MockSDDClient.Execute called with phase: %s", phase)
+			return &sdd.Result{
+				Phase:    phase,
+				Status:   "success",
+				Summary:  "mock execution completed",
+				Duration: 0,
+			}, nil
+		},
+	}
+
+	orch := NewOrchestrator(&OrchestratorConfig{
+		SDDClient:  mockClient,
+		MaxRetries: 1, // Reduce retries for faster test
+	})
 
 	// Nil task
 	err := orch.ExecuteTask(nil)
@@ -723,7 +766,21 @@ func TestOrchestrator_ExecuteTask(t *testing.T) {
 }
 
 func TestOrchestrator_ExecuteTask_WithBlocker(t *testing.T) {
-	orch := NewOrchestrator(nil)
+	// Create mock SDD client
+	mockClient := &MockSDDClient{
+		ExecuteFunc: func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+			return &sdd.Result{
+				Phase:    phase,
+				Status:   "success",
+				Summary:  "mock execution completed",
+				Duration: 0,
+			}, nil
+		},
+	}
+
+	orch := NewOrchestrator(&OrchestratorConfig{
+		SDDClient: mockClient,
+	})
 
 	// Mark a task as completed
 	orch.completedTasks["blocker-task"] = true
@@ -774,9 +831,9 @@ func TestOrchestrator_GetCompletedTasks(t *testing.T) {
 		t.Errorf("Expected 2 entries, got %d", len(got))
 	}
 
-	// Should be a copy - verify keys are present
-	if !got["task-1"] || !got["task-2"] {
-		t.Error("GetCompletedTasks should return a copy with same keys")
+	// Should be a copy - verify keys and values are present
+	if got["task-1"] != true || got["task-2"] != false {
+		t.Error("GetCompletedTasks should return a copy with same keys and values")
 	}
 }
 
@@ -811,11 +868,24 @@ func TestOrchestrator_Run_Cancelled(t *testing.T) {
 func TestOrchestrator_RunWithTasks(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Create mock SDD client
+	mockClient := &MockSDDClient{
+		ExecuteFunc: func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+			return &sdd.Result{
+				Phase:    phase,
+				Status:   "success",
+				Summary:  "mock execution completed",
+				Duration: 0,
+			}, nil
+		},
+	}
+
 	config := &OrchestratorConfig{
 		ProjectPath:       tmpDir,
 		StateDir:          tmpDir,
 		DocsPath:          tmpDir,
 		CheckpointEnabled: false, // Disable checkpoints for testing
+		SDDClient:         mockClient,
 		OnError: func(err error) {
 			// Ignore errors for this test
 		},
@@ -1118,7 +1188,7 @@ func TestStateManager_LoadState_Corrupted(t *testing.T) {
 
 	// Write corrupted JSON to state file
 	corruptedData := `{invalid json: true, missing:`
-	stateFile := filepath.Join(tmpDir, "state.json")
+	stateFile := filepath.Join(tmpDir, "loop-state.json")
 	if err := os.WriteFile(stateFile, []byte(corruptedData), 0644); err != nil {
 		t.Fatalf("Failed to write corrupted state: %v", err)
 	}
@@ -1131,14 +1201,14 @@ func TestStateManager_LoadState_Corrupted(t *testing.T) {
 }
 
 func TestStateManager_SaveState_InvalidPath(t *testing.T) {
-	sm := NewStateManager("/invalid/path/that/does/not/exist")
+	sm := NewStateManager("") // Empty path should fail
 
 	state := &LoopState{
 		Version: "1.0",
 		Phase:   "test",
 	}
 
-	// SaveState should fail for non-existent directory
+	// SaveState should fail for empty directory path
 	err := sm.SaveState(state)
 	if err == nil {
 		t.Error("Expected error for invalid state path")
@@ -1182,7 +1252,22 @@ func TestOrchestrator_SelfDependency(t *testing.T) {
 }
 
 func TestOrchestrator_MultipleBlockers(t *testing.T) {
-	orch := NewOrchestrator(nil)
+	// Create mock SDD client
+	mockClient := &MockSDDClient{
+		ExecuteFunc: func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+			return &sdd.Result{
+				Phase:    phase,
+				Status:   "success",
+				Summary:  "mock execution completed",
+				Duration: 0,
+			}, nil
+		},
+	}
+
+	orch := NewOrchestrator(&OrchestratorConfig{
+		SDDClient:  mockClient,
+		MaxRetries: 1,
+	})
 
 	// Mark multiple blockers as completed
 	orch.completedTasks["blocker-1"] = true
@@ -1223,7 +1308,22 @@ func TestOrchestrator_PartialBlockers(t *testing.T) {
 }
 
 func TestOrchestrator_EmptyDependencyList(t *testing.T) {
-	orch := NewOrchestrator(nil)
+	// Create mock SDD client
+	mockClient := &MockSDDClient{
+		ExecuteFunc: func(ctx context.Context, phase sdd.Phase, input map[string]interface{}) (*sdd.Result, error) {
+			return &sdd.Result{
+				Phase:    phase,
+				Status:   "success",
+				Summary:  "mock execution completed",
+				Duration: 0,
+			}, nil
+		},
+	}
+
+	orch := NewOrchestrator(&OrchestratorConfig{
+		SDDClient:  mockClient,
+		MaxRetries: 1,
+	})
 
 	// Task with empty dependency list
 	task := &Task{

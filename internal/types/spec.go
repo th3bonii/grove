@@ -304,6 +304,15 @@ type Assumption struct {
 	Rationale string `json:"rationale,omitempty"`
 }
 
+// ProcessedInput represents the input after being processed by InputProcessor.
+type ProcessedInput struct {
+	OriginalInput  string            `json:"original_input"`
+	ParsedContent  string            `json:"parsed_content"`
+	Metadata       map[string]string `json:"metadata"`
+	ExtractedTypes []string          `json:"extracted_types"` // e.g., ["web", "api", "database"]
+	DetectedStack  []string          `json:"detected_stack"`  // e.g., ["React", "Node.js", "PostgreSQL"]
+}
+
 // DesignDocument represents the technical architecture and design decisions.
 type DesignDocument struct {
 	Title              string          `json:"title"`
