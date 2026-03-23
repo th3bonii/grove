@@ -213,19 +213,22 @@ type Improvement struct {
 
 // CompletionReport represents the final completion report.
 type CompletionReport struct {
-	Status                string            `json:"status"`
-	TotalLoops            int               `json:"total_loops"`
-	FinalScores           QualityDimensions `json:"final_scores"`
-	ComponentsTotal       int               `json:"components_total"`
-	GapsFixed             int               `json:"gaps_fixed"`
-	NewIdeasAdded         int               `json:"new_ideas_added"`
-	AlternativesEvaluated int               `json:"alternatives_evaluated"`
-	FilesGenerated        []FileInfo        `json:"files_generated"`
-	Improvements          []Improvement     `json:"improvements"`
-	WhatChanged           []string          `json:"what_changed"`
-	WhyComplete           string            `json:"why_complete"`
-	HowToStart            string            `json:"how_to_start"`
-	Timestamp             time.Time         `json:"timestamp"`
+	Status                string              `json:"status"`
+	TotalLoops            int                 `json:"total_loops"`
+	FinalScores           QualityDimensions   `json:"final_scores"`
+	ComponentsTotal       int                 `json:"components_total"`
+	GapsFixed             int                 `json:"gaps_fixed"`
+	NewIdeasAdded         int                 `json:"new_ideas_added"`
+	AlternativesEvaluated int                 `json:"alternatives_evaluated"`
+	FilesGenerated        []FileInfo          `json:"files_generated"`
+	Improvements          []Improvement       `json:"improvements"`
+	WhatChanged           []string            `json:"what_changed"`
+	WhyComplete           string              `json:"why_complete"`
+	HowToStart            string              `json:"how_to_start"`
+	Timestamp             time.Time           `json:"timestamp"`
+	CompletenessReport    *CompletenessReport `json:"completeness_report,omitempty"`
+	OriginalComponents    []string            `json:"original_components,omitempty"`
+	ExtraComponents       []string            `json:"extra_components,omitempty"`
 }
 
 // FileInfo represents information about a generated file.
@@ -250,6 +253,7 @@ type Engine struct {
 	techStack    TechStack
 	decisions    []Decision
 	requirements []Requirement
+	tracker      *IdeaTracker // Tracks original idea and completeness
 	mu           sync.RWMutex
 
 	// Configuration
@@ -282,6 +286,13 @@ func DefaultEngineConfig() EngineConfig {
 
 // NewEngine creates a new GROVE Spec engine.
 func NewEngine(projectDir string, config EngineConfig) *Engine {
+	// Read original idea content
+	ideaContent := ""
+	ideaPath := filepath.Join(projectDir, "ideas")
+	if content, err := os.ReadFile(filepath.Join(ideaPath, "README.md")); err == nil {
+		ideaContent = string(content)
+	}
+
 	return &Engine{
 		projectDir:   projectDir,
 		inputDir:     filepath.Join(projectDir, "ideas"),
@@ -291,6 +302,7 @@ func NewEngine(projectDir string, config EngineConfig) *Engine {
 		userFlows:    make([]UserFlow, 0),
 		decisions:    make([]Decision, 0),
 		requirements: make([]Requirement, 0),
+		tracker:      NewIdeaTracker(ideaContent),
 		config:       config,
 	}
 }
@@ -699,6 +711,19 @@ func (e *Engine) shouldExit() bool {
 		return false
 	}
 
+	// Check completeness against original idea
+	if e.tracker != nil {
+		report := e.tracker.CheckCompleteness(e.components)
+		if !report.IsComplete() {
+			fmt.Printf("  ⚠ Missing components from original idea: %v\n", report.MissingComponents)
+			return false // Keep iterating until all original components covered
+		}
+		if report.HasDrift() {
+			fmt.Printf("  ⚠ Drift detected from original idea: %v\n", report.DriftItems)
+			// Don't exit, but log drift
+		}
+	}
+
 	// Normal exit: all dimensions pass AND composite >= threshold
 	if e.state.Scores.AllDimensionsPass(e.config.DimensionThreshold) &&
 		e.state.CompositeScore >= e.config.QualityThreshold {
@@ -781,18 +806,28 @@ func (e *Engine) generateDocumentation(ctx context.Context) error {
 
 // generateCompletionReport generates the final completion report.
 func (e *Engine) generateCompletionReport() *CompletionReport {
+	// Get completeness report from tracker
+	var completenessReport *CompletenessReport
+	if e.tracker != nil {
+		report := e.tracker.CheckCompleteness(e.components)
+		completenessReport = &report
+	}
+
 	return &CompletionReport{
-		Status:          "COMPLETE",
-		TotalLoops:      e.state.LoopNumber,
-		FinalScores:     e.state.Scores,
-		ComponentsTotal: len(e.components),
-		GapsFixed:       len(e.state.Improvements),
-		FilesGenerated:  e.getGeneratedFiles(),
-		Improvements:    e.state.Improvements,
-		WhatChanged:     e.getWhatChanged(),
-		WhyComplete:     e.state.ExitReason,
-		HowToStart:      "Run: grove-loop",
-		Timestamp:       time.Now(),
+		Status:             "COMPLETE",
+		TotalLoops:         e.state.LoopNumber,
+		FinalScores:        e.state.Scores,
+		ComponentsTotal:    len(e.components),
+		GapsFixed:          len(e.state.Improvements),
+		FilesGenerated:     e.getGeneratedFiles(),
+		Improvements:       e.state.Improvements,
+		WhatChanged:        e.getWhatChanged(),
+		WhyComplete:        e.state.ExitReason,
+		HowToStart:         "Run: grove-loop",
+		Timestamp:          time.Now(),
+		CompletenessReport: completenessReport,
+		OriginalComponents: e.tracker.GetOriginalComponents(),
+		ExtraComponents:    e.tracker.GetAdded(),
 	}
 }
 
