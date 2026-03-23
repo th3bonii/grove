@@ -307,10 +307,60 @@ func NewEngine(projectDir string, config EngineConfig) *Engine {
 	}
 }
 
+// validateInput validates the input directory before processing.
+// It checks:
+// - The input directory exists
+// - It contains at least one .md file
+// - The files are not empty
+func (e *Engine) validateInput() error {
+	// Check if input directory exists
+	if _, err := os.Stat(e.inputDir); os.IsNotExist(err) {
+		return fmt.Errorf("input directory does not exist: %s", e.inputDir)
+	}
+
+	// Find all .md files
+	var mdFiles []string
+	err := filepath.Walk(e.inputDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			mdFiles = append(mdFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to scan input directory: %w", err)
+	}
+
+	// Check if at least one .md file exists
+	if len(mdFiles) == 0 {
+		return fmt.Errorf("no .md files found in %s", e.inputDir)
+	}
+
+	// Check that files are not empty
+	for _, file := range mdFiles {
+		info, err := os.Stat(file)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", file, err)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("file is empty: %s", file)
+		}
+	}
+
+	return nil
+}
+
 // Run executes the complete GROVE Spec workflow.
 func (e *Engine) Run(ctx context.Context) (*CompletionReport, error) {
 	fmt.Println("GROVE Spec v2.0 — Idea to Specification Engine")
 	fmt.Println("══════════════════════════════════════════════════")
+
+	// Validate input before any processing
+	if err := e.validateInput(); err != nil {
+		return nil, fmt.Errorf("invalid input: %w\n\nTip: ensure your ideas/ directory has at least one .md file", err)
+	}
 
 	// Phase 1: Ingestion
 	fmt.Println("\n📥 Phase 1: Ingestion & Analysis")

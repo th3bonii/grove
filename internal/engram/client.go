@@ -106,6 +106,10 @@ func (e *httpError) Error() string {
 
 // doRequest performs an HTTP request with retry logic and exponential backoff.
 func (c *EngramClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	// Add timeout using context.WithTimeout
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -412,6 +416,11 @@ func containsSubstring(s, sub string) bool {
 
 // parseErrorResponse parses an error response from Engram.
 func (c *EngramClient) parseErrorResponse(resp *http.Response, op string) error {
+	// Nil check for resp and resp.Body
+	if resp == nil || resp.Body == nil {
+		return gerrors.NewStateError(op, "parse", fmt.Errorf("nil response received"))
+	}
+
 	var errResp struct {
 		Error string `json:"error"`
 	}
@@ -429,4 +438,25 @@ func (c *EngramClient) parseErrorResponse(resp *http.Response, op string) error 
 		Message:    errResp.Error,
 		Op:         op,
 	}
+}
+
+// HealthCheck performs a health check on the Engram service.
+func (c *EngramClient) HealthCheck(ctx context.Context) error {
+	resp, err := c.doRequest(ctx, "GET", "/api/health", nil)
+	if err != nil {
+		if isConnectionError(err) {
+			return &engramUnavailableError{Message: "Engram service unavailable"}
+		}
+		if isServerError(err) {
+			return &engramUnavailableError{Message: "Engram service unavailable"}
+		}
+		return fmt.Errorf("health check: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.parseErrorResponse(resp, "health check")
+	}
+
+	return nil
 }

@@ -1,5 +1,9 @@
 package analysis
 
+import (
+	"github.com/Gentleman-Programming/grove/internal/utils"
+)
+
 // SecurityAnalyzer analyzes security of an architecture.
 type SecurityAnalyzer struct{}
 
@@ -49,10 +53,10 @@ func (sa *SecurityAnalyzer) Analyze(components []string) *SecurityReport {
 
 	// Check for common issues
 	for _, comp := range components {
-		lower := toLower(comp)
+		lower := utils.ToLower(comp)
 
 		// Check for authentication
-		if contains(lower, "auth") || contains(lower, "login") {
+		if utils.Contains(lower, "auth") || utils.Contains(lower, "login") {
 			report.Good = append(report.Good, SecurityGood{
 				Category:    "authentication",
 				Description: "Authentication component detected",
@@ -60,7 +64,7 @@ func (sa *SecurityAnalyzer) Analyze(components []string) *SecurityReport {
 		}
 
 		// Check for API endpoints
-		if contains(lower, "api") || contains(lower, "endpoint") {
+		if utils.Contains(lower, "api") || utils.Contains(lower, "endpoint") {
 			report.Warnings = append(report.Warnings, SecurityIssue{
 				Category:    "api_security",
 				Description: "API endpoints detected",
@@ -69,7 +73,7 @@ func (sa *SecurityAnalyzer) Analyze(components []string) *SecurityReport {
 		}
 
 		// Check for database
-		if contains(lower, "database") || contains(lower, "db") {
+		if utils.Contains(lower, "database") || utils.Contains(lower, "db") {
 			report.Warnings = append(report.Warnings, SecurityIssue{
 				Category:    "data_protection",
 				Description: "Database access detected",
@@ -98,29 +102,4 @@ func (sa *SecurityAnalyzer) Analyze(components []string) *SecurityReport {
 	}
 
 	return report
-}
-
-// Helper functions
-func toLower(s string) string {
-	result := ""
-	for _, c := range s {
-		if c >= 'A' && c <= 'Z' {
-			result += string(c + 32)
-		} else {
-			result += string(c)
-		}
-	}
-	return result
-}
-
-func contains(s, substr string) bool {
-	if len(substr) > len(s) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

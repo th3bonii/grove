@@ -609,12 +609,12 @@ func (m *MockQualityGate) GetThresholds(ctx context.Context) (*QualityThresholds
 
 // MockEngramClient is a mock implementation of EngramClient.
 type MockEngramClient struct {
-	SaveFunc   func(ctx context.Context, observation EngramObservation) error
-	SearchFunc func(ctx context.Context, query string, options *SearchOptions) ([]EngramObservation, error)
-	GetFunc    func(ctx context.Context, id int) (*EngramObservation, error)
-	UpdateFunc func(ctx context.Context, id int, observation EngramObservation) error
-	DeleteFunc func(ctx context.Context, id int) error
-	GetSession func(ctx context.Context) (*SessionContext, error)
+	SaveFunc       func(ctx context.Context, observation EngramObservation) error
+	SearchFunc     func(ctx context.Context, query string, options *SearchOptions) ([]EngramObservation, error)
+	GetFunc        func(ctx context.Context, id int) (*EngramObservation, error)
+	UpdateFunc     func(ctx context.Context, id int, observation EngramObservation) error
+	DeleteFunc     func(ctx context.Context, id int) error
+	GetSessionFunc func(ctx context.Context) (*SessionContext, error)
 }
 
 func (m *MockEngramClient) Save(ctx context.Context, observation EngramObservation) error {
@@ -653,8 +653,8 @@ func (m *MockEngramClient) Delete(ctx context.Context, id int) error {
 }
 
 func (m *MockEngramClient) GetSession(ctx context.Context) (*SessionContext, error) {
-	if m.GetSession != nil {
-		return m.GetSession(ctx)
+	if m.GetSessionFunc != nil {
+		return m.GetSessionFunc(ctx)
 	}
 	return &SessionContext{ID: "session-1", Project: "test"}, nil
 }
@@ -698,7 +698,7 @@ func (m *MockProductionReadinessChecker) CheckDependencies(ctx context.Context, 
 
 func (m *MockProductionReadinessChecker) CheckSpecCompliance(ctx context.Context, projectPath string, specs []SpecArtifact) (*SpecComplianceResult, error) {
 	if m.CheckSpecComplianceFunc != nil {
-		return m.CheckSpecComplianceFunc(ctx, projectPath)
+		return m.CheckSpecComplianceFunc(ctx, projectPath, specs)
 	}
 	return &SpecComplianceResult{Compliant: true}, nil
 }
@@ -1127,7 +1127,7 @@ func TestWebSearchCacheInterface(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Get
-	result, err := cache.Get(ctx, "test query")
+	_, err := cache.Get(ctx, "test query")
 	if err != nil {
 		t.Errorf("Get failed: %v", err)
 	}

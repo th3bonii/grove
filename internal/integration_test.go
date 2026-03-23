@@ -571,15 +571,6 @@ func (s *AuthService) Login(ctx context.Context, email, password string) error {
 			t.Error("expected at least one keyword")
 		}
 
-		// Should have extracted "auth" or "authentication" from the input
-		foundAuth := false
-		for _, kw := range classification.Keywords {
-			if kw == "auth" || kw == "authentication" {
-				foundAuth = true
-				break
-			}
-		}
-
 		// Log what we got for debugging
 		t.Logf("Classification: intent=%s, domain=%s, keywords=%v, confidence=%f",
 			classification.Intent, classification.Domain, classification.Keywords, classification.Confidence)
@@ -791,7 +782,7 @@ func TestEndToEnd_ConfigIntegration(t *testing.T) {
 		cfg := config.DefaultConfig()
 
 		errors := cfg.Validate()
-		if len(errors) > 0 {
+		if errors != nil {
 			t.Errorf("expected no validation errors, got: %v", errors)
 		}
 	})
@@ -881,10 +872,10 @@ func TestEndToEnd_TypesConsistency(t *testing.T) {
 	// Test TaskStatus constants
 	t.Run("Task Status", func(t *testing.T) {
 		statuses := []types.TaskStatus{
-			types.TaskPending,
-			types.TaskInProgress,
-			types.TaskBlocked,
-			types.TaskDone,
+			types.TaskStatusPending,
+			types.TaskStatusInProgress,
+			types.TaskStatusBlocked,
+			types.TaskStatusCompleted,
 		}
 
 		for _, status := range statuses {

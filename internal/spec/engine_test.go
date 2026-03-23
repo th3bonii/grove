@@ -227,24 +227,29 @@ func TestEngineGenerateOutput(t *testing.T) {
 	ctx := context.Background()
 
 	// Set up context with a spec
-	engine.ctx.Spec = &types.Spec{
-		ChangeName: "test-change",
-		Version:    "1.0.0",
+	engine.ctx.Spec = &types.SpecDocument{
+		Title:   "test-change",
+		Version: "1.0.0",
 		Requirements: []types.Requirement{
 			{
 				ID:          "REQ-001",
-				Title:       "Test Requirement",
+				Type:        "functional",
 				Description: "Test description",
-				Priority:    types.PriorityHigh,
+				Priority:    "high",
 			},
 		},
-		Scenarios: []types.Scenario{
+		UserFlows: []types.UserFlow{
 			{
-				ID:    "SCN-001",
-				Title: "Test Scenario",
-				Given: "initial state",
-				When:  "action performed",
-				Then:  "expected result",
+				ID:          "SCN-001",
+				Name:        "Test Scenario",
+				Description: "Test scenario description",
+				Steps: []types.UserFlowStep{
+					{
+						StepNumber:     1,
+						Action:         "initial state",
+						ExpectedResult: "result",
+					},
+				},
 			},
 		},
 		CreatedAt: time.Now(),
