@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Gentleman-Programming/grove/internal/engram"
 	groveerrors "github.com/Gentleman-Programming/grove/internal/errors"
 )
 
@@ -42,19 +43,24 @@ type LayerEntry struct {
 
 // Collector handles context collection using the 4-layer heuristic.
 type Collector struct {
-	projectRoot string
-	agentsPath  string
-	specPath    string
-	skillsDir   string
+	projectRoot  string
+	agentsPath   string
+	specPath     string
+	skillsDir    string
+	engramClient *engram.EngramClient
 }
 
 // NewCollector creates a new ContextCollector.
 func NewCollector(projectRoot string) *Collector {
+	// Initialize Engram client
+	engramClient := engram.NewClient(engram.DefaultEngramHost)
+
 	return &Collector{
-		projectRoot: projectRoot,
-		agentsPath:  filepath.Join(projectRoot, "AGENTS.md"),
-		specPath:    filepath.Join(projectRoot, "SPEC.md"),
-		skillsDir:   filepath.Join(projectRoot, ".opencode", "skills"),
+		projectRoot:  projectRoot,
+		agentsPath:   filepath.Join(projectRoot, "AGENTS.md"),
+		specPath:     filepath.Join(projectRoot, "SPEC.md"),
+		skillsDir:    filepath.Join(projectRoot, ".opencode", "skills"),
+		engramClient: engramClient,
 	}
 }
 
@@ -66,6 +72,21 @@ func (c *Collector) Collect(ctx context.Context, intent IntentClassification) (*
 		Skills:   make([]string, 0),
 		LayerLog: make([]LayerEntry, 0),
 	}
+
+	// Load previous optimization patterns from Engram if available
+	var previousPatterns []engram.OptiPattern
+	if c.engramClient != nil {
+		patterns, err := c.engramClient.LoadOptiPatterns(string(intent.Intent))
+		if err != nil {
+			slog.Debug("failed to load opti patterns from engram",
+				slog.String("error", err.Error()))
+		} else {
+			previousPatterns = patterns
+			slog.Debug("loaded previous patterns from engram",
+				slog.Int("count", len(patterns)))
+		}
+	}
+	_ = previousPatterns // Used later for prioritization
 
 	// Layer 1: AGENTS.md explicit references
 	agentsFiles, err := c.layer1AgentsReferences(intent)
@@ -184,6 +205,24 @@ func (c *Collector) Collect(ctx context.Context, intent IntentClassification) (*
 	// Build dependency graph context for cross-module changes
 	if c.isCrossModuleIntent(intent) {
 		result.DependencyRefs = c.buildDependencyContext(result.Files)
+	}
+
+	// Save new optimization patterns to Engram
+	if c.engramClient != nil && len(result.Files) > 0 {
+		patterns := make([]engram.OptiPattern, 0, len(result.Files))
+		for _, fc := range result.Files {
+			patterns = append(patterns, engram.OptiPattern{
+				Category: string(intent.Intent),
+				Pattern:  fc.Path,
+			})
+		}
+		if err := c.engramClient.SaveOptiPatterns(patterns); err != nil {
+			slog.Debug("failed to save opti patterns to engram",
+				slog.String("error", err.Error()))
+		} else {
+			slog.Debug("saved patterns to engram",
+				slog.Int("count", len(patterns)))
+		}
 	}
 
 	return result, nil
@@ -325,10 +364,31 @@ func (c *Collector) layer2GitHistory(intent IntentClassification) ([]FileCandida
 
 	output, err := cmd.Output()
 	if err != nil {
-		// Git not available is not an error, just skip this layer
-		slog.Debug("git not available for layer 2",
+		// Git not available - try Engram as fallback
+		slog.Debug("git not available, trying engram fallback",
 			slog.String("project_root", c.projectRoot),
 			slog.String("error", err.Error()))
+
+		if c.engramClient != nil {
+			query := strings.Join(intent.Keywords, " ")
+			engramFiles, engramErr := c.engramClient.Search(query)
+			if engramErr != nil {
+				slog.Debug("engram search failed",
+					slog.String("error", engramErr.Error()))
+			} else {
+				for _, file := range engramFiles {
+					candidates = append(candidates, FileCandidate{
+						Path:  file,
+						Layer: 2,
+						Score: 0.8, // Engram gets slightly lower priority than git
+					})
+				}
+				slog.Debug("used engram fallback for layer 2",
+					slog.Int("file_count", len(engramFiles)))
+			}
+		}
+
+		// Even if Engram failed, return empty - this layer is optional
 		return candidates, nil
 	}
 

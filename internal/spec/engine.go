@@ -3,9 +3,12 @@ package spec
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Gentleman-Programming/grove/internal/engram"
+	"github.com/Gentleman-Programming/grove/internal/sdd"
 	"github.com/Gentleman-Programming/grove/internal/types"
 )
 
@@ -14,6 +17,10 @@ type Engine struct {
 	config    *types.Config
 	scorer    *Scorer
 	generator *Generator
+
+	// Integration with gentle-ai ecosystem
+	sddClient    *sdd.Client
+	engramClient *engram.EngramClient
 
 	mu         sync.RWMutex
 	ctx        *types.Context
@@ -30,10 +37,24 @@ func NewEngine(config *types.Config) *Engine {
 		config = defaultConfig()
 	}
 
+	// Get project directory from config or use default
+	projectDir := config.ProjectPath
+	if projectDir == "" {
+		projectDir = "."
+	}
+
+	// Initialize SDD client
+	sddClient := sdd.NewClient(projectDir)
+
+	// Initialize Engram client (use localhost as default host)
+	engramClient := engram.NewClient(engram.DefaultEngramHost)
+
 	return &Engine{
-		config:    config,
-		scorer:    NewScorer(config),
-		generator: NewGenerator(config),
+		config:       config,
+		scorer:       NewScorer(config),
+		generator:    NewGenerator(config),
+		sddClient:    sddClient,
+		engramClient: engramClient,
 		ctx: &types.Context{
 			Metadata: make(map[string]interface{}),
 		},
@@ -127,6 +148,14 @@ func (e *Engine) Run(ctx context.Context, input string, phase types.Phase) (*typ
 		}
 
 	default:
+		// Execute SDD Explore phase before processing input
+		if e.sddClient != nil {
+			_, _ = e.sddClient.Execute(ctx, sdd.PhaseExplore, map[string]interface{}{
+				"input": input,
+				"phase": string(phase),
+			})
+		}
+
 		// Process input and generate output
 		if err := e.ProcessInput(ctx, input); err != nil {
 			operationErrors = append(operationErrors, err.Error())
@@ -149,6 +178,59 @@ func (e *Engine) Run(ctx context.Context, input string, phase types.Phase) (*typ
 			Iterations: len(e.iterations),
 		},
 	}, nil
+}
+
+// SaveToEngram saves decisions and session summary to Engram after Run completes.
+func (e *Engine) SaveToEngram(ctx context.Context, result *types.Result) error {
+	if e.engramClient == nil {
+		return nil
+	}
+
+	// Save spec decisions from iterations
+	if len(e.iterations) > 0 {
+		changeName := ""
+		if e.ctx != nil && e.ctx.Change != nil {
+			changeName = e.ctx.Change.Name
+		}
+
+		for i, iter := range e.iterations {
+			if iter.Question != "" {
+				decision := &engram.SpecDecision{
+					ID:            fmt.Sprintf("iteration-%d", i+1),
+					ChangeName:    changeName,
+					Decision:      iter.Question,
+					Justification: iter.Answer,
+					Timestamp:     iter.Timestamp,
+				}
+				_ = e.engramClient.SaveSpecDecision(changeName, decision)
+			}
+		}
+	}
+
+	// Save session summary
+	sessionID := fmt.Sprintf("spec-%d", time.Now().Unix())
+	summary := &engram.SessionSummary{
+		SessionID: sessionID,
+		Project:   e.config.ProjectName,
+		Goal:      "Spec generation completed",
+		Discoveries: []string{
+			fmt.Sprintf("Generated %d artifacts", len(result.Artifacts)),
+			fmt.Sprintf("Completed %d iterations", len(e.iterations)),
+		},
+		Accomplished: []string{},
+		NextSteps:    []string{},
+		Timestamp:    time.Now(),
+	}
+
+	// Add accomplished items
+	if result.Success {
+		summary.Accomplished = append(summary.Accomplished, "Spec generation successful")
+	}
+	if len(result.Errors) > 0 {
+		summary.Discoveries = append(summary.Discoveries, fmt.Sprintf("Errors: %s", strings.Join(result.Errors, ", ")))
+	}
+
+	return e.engramClient.SaveSessionSummary(summary)
 }
 
 // ProcessInput processes the input text and prepares context.
@@ -399,6 +481,14 @@ func (e *Engine) runSpecPhase(ctx context.Context, input string) ([]types.Artifa
 	}
 
 	e.reportProgress("Finalizing specification", 0.9)
+
+	// Execute SDD PhaseSpec after generating specs
+	if e.sddClient != nil {
+		_, _ = e.sddClient.Execute(ctx, sdd.PhaseSpec, map[string]interface{}{
+			"content": improvedContent,
+			"phase":   string(types.PhaseSpec),
+		})
+	}
 
 	// Update context
 	e.mu.Lock()
